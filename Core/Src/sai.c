@@ -20,12 +20,14 @@
 #include "sai.h"
 
 #include "gpio.h"
+#include "bdma.h"
 
 /* USER CODE BEGIN 0 */
 
 /* USER CODE END 0 */
 
 SAI_HandleTypeDef hsai_BlockA4;
+DMA_HandleTypeDef hdma_sai4_a;
 
 /* SAI4 init function */
 void MX_SAI4_Init(void)
@@ -130,6 +132,26 @@ void HAL_SAI_MspInit(SAI_HandleTypeDef* hsai)
     GPIO_InitStruct.Alternate = GPIO_AF10_SAI4;
     HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
 
+    /* Peripheral DMA init*/
+
+    hdma_sai4_a.Instance = BDMA_Channel0;
+    hdma_sai4_a.Init.Request = BDMA_REQUEST_SAI4_A;
+    hdma_sai4_a.Init.Direction = DMA_MEMORY_TO_PERIPH;
+    hdma_sai4_a.Init.PeriphInc = DMA_PINC_DISABLE;
+    hdma_sai4_a.Init.MemInc = DMA_MINC_ENABLE;
+    hdma_sai4_a.Init.PeriphDataAlignment = DMA_PDATAALIGN_WORD;
+    hdma_sai4_a.Init.MemDataAlignment = DMA_MDATAALIGN_WORD;
+    hdma_sai4_a.Init.Mode = DMA_NORMAL;
+    hdma_sai4_a.Init.Priority = DMA_PRIORITY_LOW;
+    if (HAL_DMA_Init(&hdma_sai4_a) != HAL_OK)
+    {
+      Error_Handler();
+    }
+
+    /* Several peripheral DMA handle pointers point to the same DMA handle.
+     Be aware that there is only one channel to perform all the requested DMAs. */
+    __HAL_LINKDMA(hsai,hdmarx,hdma_sai4_a);
+    __HAL_LINKDMA(hsai,hdmatx,hdma_sai4_a);
     }
 }
 
@@ -157,6 +179,8 @@ void HAL_SAI_MspDeInit(SAI_HandleTypeDef* hsai)
 
     HAL_GPIO_DeInit(GPIOD, GPIO_PIN_11|GPIO_PIN_13|GPIO_PIN_12);
 
+    HAL_DMA_DeInit(hsai->hdmarx);
+    HAL_DMA_DeInit(hsai->hdmatx);
     }
 }
 

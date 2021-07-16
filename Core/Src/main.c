@@ -19,6 +19,7 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "bdma.h"
 #include "fatfs.h"
 #include "i2c.h"
 #include "sai.h"
@@ -29,6 +30,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "LOG.h"
+#include "mp3Player.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -59,18 +61,18 @@ void SystemClock_Config(void);
 void FatReadDirTest(char *path)
 {
 // FRESULT res; /* FatFs 函数通用结果代码 */
-#if _USE_LFN//如果使能支持长文件名 先对下面两项初始�?
+#if _USE_LFN//如果使能支持长文件名 先对下面两项初始�?
     fileinfo.lfsize=_MAX_LFN * 2 + 1;//
     fileinfo.lfname=(TCHAR*)FileName;//
 #endif
     if(f_opendir(&DirInfo,(const TCHAR*)path) == FR_OK)/* 打开文件夹目录成功，目录信息已经在dir结构体中保存 */
     {
-        while(f_readdir(&DirInfo, &FilInfo) == FR_OK)  /* 读文件信息到文件状�?�结构体�? */
+        while(f_readdir(&DirInfo, &FilInfo) == FR_OK)  /* 读文件信息到文件状�?�结构体�? */
         {
-            if(!FilInfo.fname[0]) break; /* 如果文件名为‘\0'，说明读取完成结�? */
+            if(!FilInfo.fname[0]) break; /* 如果文件名为‘\0'，说明读取完成结�? */
             LOG("%s/",path);//打印路径
 #if _USE_LFN
-            LOG("文件名：%s\r\n",fileinfo.lfname );//打印信息到串�?
+            LOG("文件名：%s\r\n",fileinfo.lfname );//打印信息到串�?
 #else
             LOG("文件名：%s\r\n", FilInfo.fname);//
 #endif
@@ -114,6 +116,7 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+  MX_BDMA_Init();
   MX_USART3_UART_Init();
   MX_SAI4_Init();
   MX_SDMMC1_SD_Init();
@@ -123,6 +126,7 @@ int main(void)
   if(f_mount(&SDFatFS,"0:",0) == FR_OK){
 	  LOG("mount OK\r\n");
 	  FatReadDirTest("/");
+	mp3PlayerDemo("0:/1.mp3");
   }else{
 	  LOG("mount Failed\r\n");
   }
