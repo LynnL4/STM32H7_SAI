@@ -112,13 +112,13 @@ enum {
 };
 
 typedef struct _MP3FrameInfo {
-	int bitrate;				//码率
-	int nChans;					//声道数
-	int samprate;				//采样率
-	int bitsPerSample;	//采样位数
-	int outputSamps;		//PCM数据数
-	int layer;					//层级
-	int version;				//版本
+	int bitrate;
+	int nChans;
+	int samprate;
+	int bitsPerSample;
+	int outputSamps;
+	int layer;
+	int version;
 } MP3FrameInfo;
 
 /* public API */

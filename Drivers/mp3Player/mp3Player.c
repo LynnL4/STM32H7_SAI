@@ -23,6 +23,7 @@
 #include "mp3dec.h"
 #include "sai.h"
 
+
 /* 推荐使用以下格式mp3文件：
  * 采样率：44100Hz
  * 声  道：2
@@ -44,12 +45,12 @@ static uint8_t bufflag=0;          /* 数据缓存区选择标志 */
 uint32_t led_delay=0;
 
 uint8_t inputbuf[INPUTBUF_SIZE]={0};        /* 解码输入缓冲区，1940字节为最大MP3帧大小  */
-short outbuffer[2][MP3BUFFER_SIZE];  /* 解码输出缓冲区，也是I2S输入数据，实际占用字节数：RECBUFFER_SIZE*2 */
+short outbuffer[MP3BUFFER_SIZE];  /* 解码输出缓冲区，也是I2S输入数据，实际占用字节数：RECBUFFER_SIZE*2 */
+
 
 FIL file;											/* file objects */
 FRESULT result;
 UINT bw;            					/* File R/W count */
-
 
 /**
   * @brief   MP3格式音频播放主程序
@@ -68,6 +69,8 @@ void mp3PlayerDemo(const char *mp3file)
 	mp3player.ucFreq = SAI_AUDIOFREQ_DEFAULT;
 	mp3player.ucStatus = STA_IDLE;
 	mp3player.ucVolume = 40;
+
+	uint32_t tickstart = HAL_GetTick();
 
 	result=f_open(&file,mp3file,FA_READ);
 	if(result!=FR_OK)
@@ -88,15 +91,6 @@ void mp3PlayerDemo(const char *mp3file)
 	LOG("初始化中...\n");
 
 	Delay_ms(10);	/* 延迟一段时间，等待I2S中断结束 */
-	//wm8960_Reset();		/* 复位wm8960到复位状态 */
-	/* 配置wm8960芯片，输入为DAC，输出为耳机 */
-	//wm8960_CfgAudioPath(DAC_ON, EAR_LEFT_ON | EAR_RIGHT_ON);
-
-	/* 调节音量，左右相同音量 */
-	//wm8960_SetOUT1Volume(mp3player.ucVolume);
-
-	/* 配置wm8960音频接口为飞利浦标准I2S接口，16bit */
-	//wm8960_CfgAudioIF(SAI_I2S_STANDARD, 16);
 
 	/*  初始化并配置I2S  */
    //SAI_Play_Stop();
@@ -108,7 +102,7 @@ void mp3PlayerDemo(const char *mp3file)
 	Isread=0;
 
 	mp3player.ucStatus = STA_PLAYING;		/* 放音状态 */
-  result=f_read(&file,inputbuf,INPUTBUF_SIZE,&bw);
+    result=f_read(&file,inputbuf,INPUTBUF_SIZE,&bw);
 	if(result!=FR_OK)
 	{
 		LOG("读取%s失败 -> %d\r\n",mp3file,result);
@@ -150,7 +144,7 @@ void mp3PlayerDemo(const char *mp3file)
 			}
 			bytes_left += bw;		//有效数据流大小
 		}
-		err = MP3Decode(Mp3Decoder, &read_ptr, &bytes_left, outbuffer[bufflag], 0);	//bufflag开始解码 参数：mp3解码结构体、输入流指针、输入流大小、输出流指针、数据格式
+		err = MP3Decode(Mp3Decoder, &read_ptr, &bytes_left, outbuffer, 0);	//bufflag开始解码 参数：mp3解码结构体、输入流指针、输入流大小、输出流指针、数据格式
 		frames++;
 		if (err != ERR_MP3_NONE)	//错误处理
 		{
@@ -190,8 +184,8 @@ void mp3PlayerDemo(const char *mp3file)
 					//单声道数据需要复制一份到另一个声道
 					for (i = outputSamps - 1; i >= 0; i--)
 					{
-						outbuffer[bufflag][i * 2] = outbuffer[bufflag][i];
-						outbuffer[bufflag][i * 2 + 1] = outbuffer[bufflag][i];
+						outbuffer[i * 2] = outbuffer[i];
+						outbuffer[i * 2 + 1] = outbuffer[i];
 					}
 					outputSamps *= 2;
 				}//if (Mp3FrameInfo.nChans == 1)	//单声道
@@ -210,15 +204,17 @@ void mp3PlayerDemo(const char *mp3file)
 				LOG(" \r\n Version       %d", Mp3FrameInfo.version);
 				LOG(" \r\n OutputSamps   %d", Mp3FrameInfo.outputSamps);
 				LOG("\r\n");
+
+
 				if(mp3player.ucFreq >= SAI_AUDIOFREQ_DEFAULT)	//I2S_AudioFreq_Default = 2，正常的帧，每次都要改速率
 				{
 
-					//SAIxA_Tx_Config(SAI_I2S_STANDARD,SAI_PROTOCOL_DATASIZE_16BIT,mp3player.ucFreq);						//根据采样率修改iis速率
-					//SAIA_TX_DMA_Init((uint32_t)(&outbuffer[0]),(uint32_t)&outbuffer[1],outputSamps);
+					LOG("AFSD\r\n");
 				}
-
 				//SAI_Play_Start();
 			}
+			//LOG("time: %d\n\r", HAL_GetTick() - tickstart);
+			HAL_SAI_Transmit(&hsai_BlockA4, (uint8_t *)outbuffer, MP3BUFFER_SIZE, 10000);
 		}//else 解码正常
 
 		if(f_eof(&file)) 		//mp3文件读取完成，退出
@@ -230,7 +226,6 @@ void mp3PlayerDemo(const char *mp3file)
 //		while(Isread==0)
 //		{
 //			led_delay++;
-//			LOG("1");
 //			if(led_delay==0xffffff)
 //			{
 //				led_delay=0;
@@ -238,7 +233,7 @@ void mp3PlayerDemo(const char *mp3file)
 //			}
 //			//Input_scan();		//等待DMA传输完成，此间可以运行按键扫描及处理事件
 //		}
-		Isread=0;
+		//Isread=0;
 	}
 	//SAI_Play_Stop();
 	mp3player.ucStatus=STA_IDLE;
@@ -246,22 +241,14 @@ void mp3PlayerDemo(const char *mp3file)
 	f_close(&file);
 }
 
+
 /* DMA发送完成中断回调函数 */
 /* 缓冲区内容已经播放完成，需要切换缓冲区，进行新缓冲区内容播放
    同时读取WAV文件数据填充到已播缓冲区  */
-void MusicPlayer_SAI_DMA_TX_Callback(void)
+void SAI_DMATxCplt()
 {
-
-//  if(DMA_Instance->CR&(1<<19)) //当前使用Memory1数据
-//  {
-//    bufflag=0;                       //可以将数据读取到缓冲区0
-//  }
-//  else                               //当前使用Memory0数据
-//  {
-//    bufflag=1;                       //可以将数据读取到缓冲区1
-//  }
-//  Isread=1;                          // DMA传输完成标志
-
+	Isread = 1;
+	LOG("here");
 }
 
 /***************************** (END OF FILE) *********************************/

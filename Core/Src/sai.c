@@ -20,14 +20,12 @@
 #include "sai.h"
 
 #include "gpio.h"
-#include "bdma.h"
 
 /* USER CODE BEGIN 0 */
 
 /* USER CODE END 0 */
 
 SAI_HandleTypeDef hsai_BlockA4;
-DMA_HandleTypeDef hdma_sai4_a;
 
 /* SAI4 init function */
 void MX_SAI4_Init(void)
@@ -42,33 +40,17 @@ void MX_SAI4_Init(void)
   /* USER CODE END SAI4_Init 1 */
 
   hsai_BlockA4.Instance = SAI4_Block_A;
-  hsai_BlockA4.Init.Protocol = SAI_FREE_PROTOCOL;
   hsai_BlockA4.Init.AudioMode = SAI_MODEMASTER_TX;
-  hsai_BlockA4.Init.DataSize = SAI_DATASIZE_8;
-  hsai_BlockA4.Init.FirstBit = SAI_FIRSTBIT_MSB;
-  hsai_BlockA4.Init.ClockStrobing = SAI_CLOCKSTROBING_FALLINGEDGE;
   hsai_BlockA4.Init.Synchro = SAI_ASYNCHRONOUS;
   hsai_BlockA4.Init.OutputDrive = SAI_OUTPUTDRIVE_DISABLE;
   hsai_BlockA4.Init.NoDivider = SAI_MASTERDIVIDER_ENABLE;
-  hsai_BlockA4.Init.FIFOThreshold = SAI_FIFOTHRESHOLD_EMPTY;
-  hsai_BlockA4.Init.AudioFrequency = SAI_AUDIO_FREQUENCY_192K;
+  hsai_BlockA4.Init.FIFOThreshold = SAI_FIFOTHRESHOLD_FULL;
+  hsai_BlockA4.Init.AudioFrequency = SAI_AUDIO_FREQUENCY_44K;
   hsai_BlockA4.Init.SynchroExt = SAI_SYNCEXT_DISABLE;
   hsai_BlockA4.Init.MonoStereoMode = SAI_STEREOMODE;
   hsai_BlockA4.Init.CompandingMode = SAI_NOCOMPANDING;
   hsai_BlockA4.Init.TriState = SAI_OUTPUT_NOTRELEASED;
-  hsai_BlockA4.Init.PdmInit.Activation = DISABLE;
-  hsai_BlockA4.Init.PdmInit.MicPairsNbr = 0;
-  hsai_BlockA4.Init.PdmInit.ClockEnable = SAI_PDM_CLOCK1_ENABLE;
-  hsai_BlockA4.FrameInit.FrameLength = 64;
-  hsai_BlockA4.FrameInit.ActiveFrameLength = 32;
-  hsai_BlockA4.FrameInit.FSDefinition = SAI_FS_STARTFRAME;
-  hsai_BlockA4.FrameInit.FSPolarity = SAI_FS_ACTIVE_LOW;
-  hsai_BlockA4.FrameInit.FSOffset = SAI_FS_FIRSTBIT;
-  hsai_BlockA4.SlotInit.FirstBitOffset = 0;
-  hsai_BlockA4.SlotInit.SlotSize = SAI_SLOTSIZE_32B;
-  hsai_BlockA4.SlotInit.SlotNumber = 2;
-  hsai_BlockA4.SlotInit.SlotActive = 0x00000000;
-  if (HAL_SAI_Init(&hsai_BlockA4) != HAL_OK)
+  if (HAL_SAI_InitProtocol(&hsai_BlockA4, SAI_I2S_STANDARD, SAI_PROTOCOL_DATASIZE_16BIT, 2) != HAL_OK)
   {
     Error_Handler();
   }
@@ -92,11 +74,11 @@ void HAL_SAI_MspInit(SAI_HandleTypeDef* hsai)
   /** Initializes the peripherals clock
   */
     PeriphClkInitStruct.PeriphClockSelection = RCC_PERIPHCLK_SAI4A;
-    PeriphClkInitStruct.PLL3.PLL3M = 4;
-    PeriphClkInitStruct.PLL3.PLL3N = 32;
-    PeriphClkInitStruct.PLL3.PLL3P = 2;
-    PeriphClkInitStruct.PLL3.PLL3Q = 2;
-    PeriphClkInitStruct.PLL3.PLL3RGE = RCC_PLL3VCIRANGE_2;
+    PeriphClkInitStruct.PLL3.PLL3M = 2;
+    PeriphClkInitStruct.PLL3.PLL3N = 48;
+    PeriphClkInitStruct.PLL3.PLL3P = 25;
+    PeriphClkInitStruct.PLL3.PLL3Q = 1;
+    PeriphClkInitStruct.PLL3.PLL3RGE = RCC_PLL3VCIRANGE_3;
     PeriphClkInitStruct.PLL3.PLL3VCOSEL = RCC_PLL3VCOWIDE;
     PeriphClkInitStruct.PLL3.PLL3FRACN = 0;
     PeriphClkInitStruct.Sai4AClockSelection = RCC_SAI4ACLKSOURCE_PLL3;
@@ -132,26 +114,6 @@ void HAL_SAI_MspInit(SAI_HandleTypeDef* hsai)
     GPIO_InitStruct.Alternate = GPIO_AF10_SAI4;
     HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
 
-    /* Peripheral DMA init*/
-
-    hdma_sai4_a.Instance = BDMA_Channel0;
-    hdma_sai4_a.Init.Request = BDMA_REQUEST_SAI4_A;
-    hdma_sai4_a.Init.Direction = DMA_MEMORY_TO_PERIPH;
-    hdma_sai4_a.Init.PeriphInc = DMA_PINC_DISABLE;
-    hdma_sai4_a.Init.MemInc = DMA_MINC_ENABLE;
-    hdma_sai4_a.Init.PeriphDataAlignment = DMA_PDATAALIGN_WORD;
-    hdma_sai4_a.Init.MemDataAlignment = DMA_MDATAALIGN_WORD;
-    hdma_sai4_a.Init.Mode = DMA_NORMAL;
-    hdma_sai4_a.Init.Priority = DMA_PRIORITY_LOW;
-    if (HAL_DMA_Init(&hdma_sai4_a) != HAL_OK)
-    {
-      Error_Handler();
-    }
-
-    /* Several peripheral DMA handle pointers point to the same DMA handle.
-     Be aware that there is only one channel to perform all the requested DMAs. */
-    __HAL_LINKDMA(hsai,hdmarx,hdma_sai4_a);
-    __HAL_LINKDMA(hsai,hdmatx,hdma_sai4_a);
     }
 }
 
@@ -179,8 +141,6 @@ void HAL_SAI_MspDeInit(SAI_HandleTypeDef* hsai)
 
     HAL_GPIO_DeInit(GPIOD, GPIO_PIN_11|GPIO_PIN_13|GPIO_PIN_12);
 
-    HAL_DMA_DeInit(hsai->hdmarx);
-    HAL_DMA_DeInit(hsai->hdmatx);
     }
 }
 

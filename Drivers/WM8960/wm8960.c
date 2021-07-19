@@ -6,11 +6,60 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 #include "wm8960.h"
+#include "LOG.h"
+#include "i2c.h"
 
 /*******************************************************************************
  * Definitations
  ******************************************************************************/
-
+#define LEFT_INPUT_VOLUME 0X00
+#define RIGHT_INPUT_VOLUME 0X01
+#define LOUT1_VOLUME 0X02
+#define ROUT1_VOLUME 0X03
+#define CLOCKING_1 0X04
+#define ADC_AND_DAC_CONTROL_1 0X05
+#define ADC_AND_DAC_CONTROL_2 0X06
+#define DIGITAL_AUDIO_INTERFACE 0X07
+#define CLOCKING_2 0X08
+#define AUDIO_INTERFACE 0X09
+#define LEFT_DAC_VOLUME 0X0A
+#define RIGHT_DAC_VOLUME 0X0B
+#define RESET 0X0F
+#define _3D_CONTROL 0X10
+#define ALC1 0X11
+#define ALC2 0X12
+#define ALC3 0X13
+#define NOISE_GATE 0X14
+#define LEFT_ADC_VOLUME 0X15
+#define RIGHT_ADC_VOLUME 0X16
+#define ADDITIONAL_CONTROL_1 0X17
+#define ADDITIONAL_CONTROL_2 0X18
+#define POWER_MANAGEMENT_1 0X19
+#define POWER_MANAGEMENT_2 0X1A
+#define ADDITIONAL_CONTROL_3 0X1B
+#define ANTI_POP_1 0X1C
+#define ANTI_POP_2 0X1D
+#define ADCL_SIGNAL_PATH  0X20
+#define ADCR_SIGNAL_PATH  0X21
+#define LEFT_OUT_MIX 0X22
+#define RIGHT_OUT_MIX 0X25
+#define MONO_OUT_MIX_1 0X26
+#define MONO_OUT_MIX_2 0X27
+#define LOUT2_VOLUME 0X28
+#define ROUT2_VOLUME 0X29
+#define MONOOUT_VOLUME 0X2A
+#define INPUT_BOOST_MIXER_1 0X2B
+#define INPUT_BOOST_MIXER_2 0X2C
+#define BYPASS_1 0X2D
+#define BYPASS_2 0X2E
+#define POWER_MANAGEMENT_3 0X2F
+#define ADDITIONAL_CONTROL_4 0X30
+#define CLASS_D_CONTROL_1 0X31
+#define CLASS_D_CONTROL_3 0X33
+#define PLL_N 0X34
+#define PLL_K_1 0X35
+#define PLL_K_2 0X36
+#define PLL_K_3 0X37
 /*******************************************************************************
  * Prototypes
  ******************************************************************************/
@@ -23,623 +72,112 @@
  * We can't read the WM8960 register space when we are
  * using 2 wire for device control, so we cache them instead.
  */
-static const uint16_t wm8960_reg[WM8960_CACHEREGNUM] = {
+static const uint16_t wm8960_reg[56] = {
     0x0097, 0x0097, 0x0000, 0x0000, 0x0000, 0x0008, 0x0000, 0x000a, 0x01c0, 0x0000, 0x00ff, 0x00ff, 0x0000, 0x0000,
     0x0000, 0x0000, 0x0000, 0x007b, 0x0100, 0x0032, 0x0000, 0x00c3, 0x00c3, 0x01c0, 0x0000, 0x0000, 0x0000, 0x0000,
     0x0000, 0x0000, 0x0000, 0x0000, 0x0100, 0x0100, 0x0050, 0x0050, 0x0050, 0x0050, 0x0000, 0x0000, 0x0000, 0x0000,
     0x0040, 0x0000, 0x0000, 0x0050, 0x0050, 0x0000, 0x0002, 0x0037, 0x004d, 0x0080, 0x0008, 0x0031, 0x0026, 0x00e9,
 };
 
-static uint16_t reg_cache[WM8960_CACHEREGNUM];
+static uint16_t reg_cache[56];
 
 /*******************************************************************************
  * Code
  ******************************************************************************/
-uint8_t WM8960_Init(wm8960_handle_t *handle, const wm8960_config_t *wm8960Config)
+uint8_t WM8960_Init()
 {
-    const wm8960_config_t *config = wm8960Config;
-    handle->config                = config;
+	 // Serial.println("WM8960 INIT...");
+	  //Reset Device
+	  WM8960_WriteReg(RESET, 0x0000);
+	  HAL_Delay(100);
+	  // Serial.println("WM8960 reset completed !!\r\n");
 
-    /* load wm8960 register map */
-    memcpy(reg_cache, wm8960_reg, sizeof(wm8960_reg));
+	  //Set Power Source
+	  WM8960_WriteReg(POWER_MANAGEMENT_1, 1<<7 | 1<<6 | 1<<5 | 1<<4 | 1<<3 | 1<<2 | 1<<1);
+	  WM8960_WriteReg(POWER_MANAGEMENT_2, 1<<8 | 1<<7 | 1<<6 | 1<<5 | 1<<4 | 1<<3 | 1<<0);
+	  WM8960_WriteReg(POWER_MANAGEMENT_3, 1<<3 | 1<<2 | 1<<4 | 1<<5);
 
-    /* Reset the codec */
-    WM8960_WriteReg(handle, WM8960_RESET, 0x00);
-    /*
-     * VMID=50K, Enable VREF, AINL, AINR, ADCL and ADCR
-     * I2S_IN (bit 0), I2S_OUT (bit 1), DAP (bit 4), DAC (bit 5), ADC (bit 6) are powered on
-     */
-    WM8960_WriteReg(handle, WM8960_POWER1, 0xFE);
-    /*
-     * Enable DACL, DACR, LOUT1, ROUT1, PLL down
-     */
-    WM8960_WriteReg(handle, WM8960_POWER2, 0x1E0);
-    /*
-     * Enable left and right channel input PGA, left and right output mixer
-     */
-    WM8960_WriteReg(handle, WM8960_POWER3, 0x3C);
-    /* ADC and DAC uses same clock */
-    WM8960_WriteReg(handle, WM8960_IFACE2, 0x40);
-    /* set data route */
-    WM8960_SetDataRoute(handle, config->route);
-    /* set data protocol */
-    WM8960_SetProtocol(handle, config->bus);
-    /* set master or slave */
-    WM8960_SetMasterSlave(handle, config->master_slave);
-    /* select left input */
-    WM8960_SetLeftInput(handle, config->leftInputSource);
-    /* select right input */
-    WM8960_SetRightInput(handle, config->rightInputSource);
-    /* speaker power */
-    if (config->enableSpeaker)
-    {
-        WM8960_SetModule(handle, kWM8960_ModuleSpeaker, true);
-    }
+	  //Configure clock
+	  //MCLK->div1->SYSCLK->DAC/ADC sample Freq = 24MHz(MCLK) / 2*256 = 46.875kHz
+	  WM8960_WriteReg(CLOCKING_1, 0x0091);
+	  WM8960_WriteReg(CLOCKING_2, 0x01ca);
 
-    WM8960_WriteReg(handle, WM8960_ADDCTL1, 0x0C0);
-    WM8960_WriteReg(handle, WM8960_ADDCTL4, 0x40);
+	  //Configure ADC/DAC
+	  WM8960_WriteReg(ADC_AND_DAC_CONTROL_1, 1 << 2 | 1 << 1);
+	  //Configure audio interface
+	  //I2S format 16 bits word length and set to master mode
+	  // WM8960_WriteReg(DIGITAL_AUDIO_INTERFACE, 1<<1 | 1<<6);
+	  WM8960_WriteReg(DIGITAL_AUDIO_INTERFACE, 1<<1);
 
-    WM8960_WriteReg(handle, WM8960_BYPASS1, 0x0);
-    WM8960_WriteReg(handle, WM8960_BYPASS2, 0x0);
-    /*
-     * ADC volume, 0dB
-     */
-    WM8960_WriteReg(handle, WM8960_LADC, 0x1C3);
-    WM8960_WriteReg(handle, WM8960_RADC, 0x1C3);
+	  //Configure HP_L and HP_R OUTPUTS
+	  WM8960_WriteReg(LOUT1_VOLUME, 0x007F | 0x0100);  //LOUT1 Volume Set
+	  WM8960_WriteReg(ROUT1_VOLUME, 0x007F | 0x0100);  //ROUT1 Volume Set
 
-    /*
-     * Digital DAC volume, 0dB
-     */
-    WM8960_WriteReg(handle, WM8960_LDAC, 0x1E0);
-    WM8960_WriteReg(handle, WM8960_RDAC, 0x1E0);
+	  //Configure SPK_RP and SPK_RN
+	  WM8960_WriteReg(LOUT2_VOLUME, 0x7F | 1<<8 ); //Left Speaker Volume
+	  WM8960_WriteReg(ROUT2_VOLUME, 0x7F | 1<<8 ); //Right Speaker Volume
 
-    /*
-     * Headphone volume, LOUT1 and ROUT1, 0dB
-     */
-    WM8960_WriteReg(handle, WM8960_LOUT1, 0x16F);
-    WM8960_WriteReg(handle, WM8960_ROUT1, 0x16F);
+	  //Enable the OUTPUTS
+	  WM8960_WriteReg(CLASS_D_CONTROL_1, 0x00F7); //Enable Class D Speaker Outputs
+	  //Configure DAC volume
+	  WM8960_WriteReg(LEFT_DAC_VOLUME, 0X00FF | 0x0100);
+	  WM8960_WriteReg(RIGHT_DAC_VOLUME, 0x00FF | 0x0100);
+	  //3D
+	  //WM8960_WriteReg(0x10, 0x001F);
 
-    /* Unmute DAC. */
-    WM8960_WriteReg(handle, WM8960_DACCTL1, 0x0000);
-    WM8960_WriteReg(handle, WM8960_LINVOL, 0x117);
-    WM8960_WriteReg(handle, WM8960_RINVOL, 0x117);
+	  // enable Left DAC to Left Output Mixer
+	  WM8960_WriteReg(LEFT_OUT_MIX, 1<<8);
+	  WM8960_WriteReg(RIGHT_OUT_MIX, 1<<8);
 
-    return WM8960_ConfigDataFormat(handle, config->format.mclk_HZ, config->format.sampleRate, config->format.bitWidth);
+	  // connect LINPUT1 to PGA and set PGA Boost Gain.
+	  WM8960_WriteReg(ADCL_SIGNAL_PATH, 0X0020 | 1<<8 | 1<<3);
+	  WM8960_WriteReg(ADCR_SIGNAL_PATH, 0X0020 | 1<<8 | 1<<3);
+
+	  // set Input PGA Volume
+	  WM8960_WriteReg(LEFT_INPUT_VOLUME, 0X0027 | 0X0100 );
+	  WM8960_WriteReg(RIGHT_INPUT_VOLUME, 0X0027 | 0X0100 );
+
+	  // set ADC Volume
+	  WM8960_WriteReg(LEFT_ADC_VOLUME, 0X00c3 | 0X0100 );
+	  WM8960_WriteReg(RIGHT_ADC_VOLUME,0X00c3 | 0X0100 );
+
+	  // disable bypass switch
+	  WM8960_WriteReg(BYPASS_1,0x0000);
+	  WM8960_WriteReg(BYPASS_2,0x0000);
+
+	  // enable bypass switch
+	  // WM8960_WriteReg(BYPASS_1,0x0000 | 1<<7);
+	  // WM8960_WriteReg(BYPASS_2,0x0000 | 1<<7);
+	  //enable ALC
+	  WM8960_WriteReg(ALC1, 0X007B);
+	  WM8960_WriteReg(ALC2, 0X0100);
+	  WM8960_WriteReg(ALC3, 0X0032);
+
+	  //speaker select
+	  WM8960_WriteReg(ADDITIONAL_CONTROL_2, 1<<6 | 1<<5); //0 speaker out 1 headphone out
+	  //enable thermal shutdown
+	  WM8960_WriteReg(ADDITIONAL_CONTROL_1, 0x01C3);
+	  WM8960_WriteReg(ADDITIONAL_CONTROL_4, 0x0009 | 1<<6);//0x000D,0x0005
+	  //config f clock to 44100 hz
+	  WM8960_WriteReg(PLL_N, 0x0037);
+	  WM8960_WriteReg(PLL_K_1, 0x0086);
+	  WM8960_WriteReg(PLL_K_2, 0x00C2);
+	  WM8960_WriteReg(PLL_K_3, 0x0027);
+
+	  return 1;
 }
 
-uint8_t WM8960_Deinit(wm8960_handle_t *handle)
-{
-    WM8960_SetModule(handle, kWM8960_ModuleADC, false);
-    WM8960_SetModule(handle, kWM8960_ModuleDAC, false);
-    WM8960_SetModule(handle, kWM8960_ModuleVREF, false);
-    WM8960_SetModule(handle, kWM8960_ModuleLineIn, false);
-    WM8960_SetModule(handle, kWM8960_ModuleLineOut, false);
-    WM8960_SetModule(handle, kWM8960_ModuleSpeaker, false);
 
-    return 0;
-}
-
-void WM8960_SetMasterSlave(wm8960_handle_t *handle, bool master)
-{
-    if (master == 1)
-    {
-        WM8960_ModifyReg(handle, WM8960_IFACE1, WM8960_IFACE1_MS_MASK, WM8960_IFACE1_MS(WM8960_IFACE1_MASTER));
-    }
-    else
-    {
-        WM8960_ModifyReg(handle, WM8960_IFACE1, WM8960_IFACE1_MS_MASK, WM8960_IFACE1_MS(WM8960_IFACE1_SLAVE));
-    }
-}
-
-uint8_t WM8960_SetModule(wm8960_handle_t *handle, wm8960_module_t module, bool isEnabled)
-{
-    uint8_t ret = 0;
-    switch (module)
-    {
-        case kWM8960_ModuleADC:
-            WM8960_ModifyReg(handle, WM8960_POWER1, WM8960_POWER1_ADCL_MASK,
-                             ((uint16_t)isEnabled << WM8960_POWER1_ADCL_SHIFT));
-            WM8960_ModifyReg(handle, WM8960_POWER1, WM8960_POWER1_ADCR_MASK,
-                             ((uint16_t)isEnabled << WM8960_POWER1_ADCR_SHIFT));
-            break;
-        case kWM8960_ModuleDAC:
-            WM8960_ModifyReg(handle, WM8960_POWER2, WM8960_POWER2_DACL_MASK,
-                             ((uint16_t)isEnabled << WM8960_POWER2_DACL_SHIFT));
-            WM8960_ModifyReg(handle, WM8960_POWER2, WM8960_POWER2_DACR_MASK,
-                             ((uint16_t)isEnabled << WM8960_POWER2_DACR_SHIFT));
-            break;
-        case kWM8960_ModuleVREF:
-            WM8960_ModifyReg(handle, WM8960_POWER1, WM8960_POWER1_VREF_MASK,
-                             ((uint16_t)isEnabled << WM8960_POWER1_VREF_SHIFT));
-            break;
-        case kWM8960_ModuleLineIn:
-            WM8960_ModifyReg(handle, WM8960_POWER1, WM8960_POWER1_AINL_MASK,
-                             ((uint16_t)isEnabled << WM8960_POWER1_AINL_SHIFT));
-            WM8960_ModifyReg(handle, WM8960_POWER1, WM8960_POWER1_AINR_MASK,
-                             ((uint16_t)isEnabled << WM8960_POWER1_AINR_SHIFT));
-            WM8960_ModifyReg(handle, WM8960_POWER3, WM8960_POWER3_LMIC_MASK,
-                             ((uint16_t)isEnabled << WM8960_POWER3_LMIC_SHIFT));
-            WM8960_ModifyReg(handle, WM8960_POWER3, WM8960_POWER3_RMIC_MASK,
-                             ((uint16_t)isEnabled << WM8960_POWER3_RMIC_SHIFT));
-            break;
-        case kWM8960_ModuleLineOut:
-            WM8960_ModifyReg(handle, WM8960_POWER2, WM8960_POWER2_LOUT1_MASK,
-                             ((uint16_t)isEnabled << WM8960_POWER2_LOUT1_SHIFT));
-            WM8960_ModifyReg(handle, WM8960_POWER2, WM8960_POWER2_ROUT1_MASK,
-                             ((uint16_t)isEnabled << WM8960_POWER2_ROUT1_SHIFT));
-            break;
-        case kWM8960_ModuleMICB:
-            WM8960_ModifyReg(handle, WM8960_POWER1, WM8960_POWER1_MICB_MASK,
-                             ((uint16_t)isEnabled << WM8960_POWER1_MICB_SHIFT));
-            break;
-        case kWM8960_ModuleSpeaker:
-            WM8960_ModifyReg(handle, WM8960_POWER2, WM8960_POWER2_SPKL_MASK,
-                             ((uint16_t)isEnabled << WM8960_POWER2_SPKL_SHIFT));
-            WM8960_ModifyReg(handle, WM8960_POWER2, WM8960_POWER2_SPKR_MASK,
-                             ((uint16_t)isEnabled << WM8960_POWER2_SPKR_SHIFT));
-            WM8960_WriteReg(handle, WM8960_CLASSD1, 0xF7);
-            break;
-        case kWM8960_ModuleOMIX:
-            WM8960_ModifyReg(handle, WM8960_POWER3, WM8960_POWER3_LOMIX_MASK,
-                             ((uint16_t)isEnabled << WM8960_POWER3_LOMIX_SHIFT));
-            WM8960_ModifyReg(handle, WM8960_POWER3, WM8960_POWER3_ROMIX_MASK,
-                             ((uint16_t)isEnabled << WM8960_POWER3_ROMIX_SHIFT));
-            break;
-        default:
-            ret = 2;
-            break;
-    }
-    return ret;
-}
-
-uint8_t WM8960_SetDataRoute(wm8960_handle_t *handle, wm8960_route_t route)
-{
-    uint8_t ret = 0;
-    switch (route)
-    {
-        case kWM8960_RouteBypass:
-            /* Bypass means from line-in to HP*/
-            /*
-             * Left LINPUT3 to left output mixer, LINPUT3 left output mixer volume = 0dB
-             */
-            WM8960_WriteReg(handle, WM8960_LOUTMIX, 0x80);
-
-            /*
-             * Right RINPUT3 to right output mixer, RINPUT3 right output mixer volume = 0dB
-             */
-            WM8960_WriteReg(handle, WM8960_ROUTMIX, 0x80);
-            break;
-        case kWM8960_RoutePlayback:
-            /* Data route I2S_IN-> DAC-> HP */
-            /*
-             * Left DAC to left output mixer, LINPUT3 left output mixer volume = 0dB
-             */
-            WM8960_WriteReg(handle, WM8960_LOUTMIX, 0x100);
-
-            /*
-             * Right DAC to right output mixer, RINPUT3 right output mixer volume = 0dB
-             */
-            WM8960_WriteReg(handle, WM8960_ROUTMIX, 0x100);
-            WM8960_WriteReg(handle, WM8960_POWER3, 0x0C);
-            /* Set power for DAC */
-            WM8960_SetModule(handle, kWM8960_ModuleDAC, true);
-            WM8960_SetModule(handle, kWM8960_ModuleOMIX, true);
-            WM8960_SetModule(handle, kWM8960_ModuleLineOut, true);
-            break;
-        case kWM8960_RoutePlaybackandRecord:
-            /*
-             * Left DAC to left output mixer, LINPUT3 left output mixer volume = 0dB
-             */
-            WM8960_WriteReg(handle, WM8960_LOUTMIX, 0x100);
-
-            /*
-             * Right DAC to right output mixer, RINPUT3 right output mixer volume = 0dB
-             */
-            WM8960_WriteReg(handle, WM8960_ROUTMIX, 0x100);
-            WM8960_WriteReg(handle, WM8960_POWER3, 0x3C);
-            WM8960_SetModule(handle, kWM8960_ModuleDAC, true);
-            WM8960_SetModule(handle, kWM8960_ModuleADC, true);
-            WM8960_SetModule(handle, kWM8960_ModuleLineIn, true);
-            WM8960_SetModule(handle, kWM8960_ModuleOMIX, true);
-            WM8960_SetModule(handle, kWM8960_ModuleLineOut, true);
-            break;
-        case kWM8960_RouteRecord:
-            /* LINE_IN->ADC->I2S_OUT */
-            /*
-             * Left and right input boost, LIN3BOOST and RIN3BOOST = 0dB
-             */
-            WM8960_WriteReg(handle, WM8960_POWER3, 0x30);
-            /* Power up ADC and AIN */
-            WM8960_SetModule(handle, kWM8960_ModuleLineIn, true);
-            WM8960_SetModule(handle, kWM8960_ModuleADC, true);
-            break;
-        default:
-            ret = 2;
-            break;
-    }
-    return ret;
-}
-
-uint8_t WM8960_SetLeftInput(wm8960_handle_t *handle, wm8960_input_t input)
-{
-    uint8_t ret = 0;
-    uint16_t val = 0;
-
-    switch (input)
-    {
-        case kWM8960_InputSingleEndedMic:
-            /* Only LMN1 enabled, LMICBOOST to 13db, LMIC2B enabled */
-            WM8960_ReadReg(WM8960_POWER1, &val);
-            val |= (WM8960_POWER1_AINL_MASK | WM8960_POWER1_ADCL_MASK | WM8960_POWER1_MICB_MASK);
-            ret = WM8960_WriteReg(handle, WM8960_POWER1, val);
-            ret = WM8960_WriteReg(handle, WM8960_LINPATH, 0x138);
-            ret = WM8960_WriteReg(handle, WM8960_LINVOL, 0x117);
-            break;
-        case kWM8960_InputDifferentialMicInput2:
-            WM8960_ReadReg(WM8960_POWER1, &val);
-            val |= (WM8960_POWER1_AINL_MASK | WM8960_POWER1_ADCL_MASK | WM8960_POWER1_MICB_MASK);
-            ret = WM8960_WriteReg(handle, WM8960_POWER1, val);
-            ret = WM8960_WriteReg(handle, WM8960_LINPATH, 0x178);
-            ret = WM8960_WriteReg(handle, WM8960_LINVOL, 0x117);
-            break;
-        case kWM8960_InputDifferentialMicInput3:
-            WM8960_ReadReg(WM8960_POWER1, &val);
-            val |= (WM8960_POWER1_AINL_MASK | WM8960_POWER1_ADCL_MASK | WM8960_POWER1_MICB_MASK);
-            ret = WM8960_WriteReg(handle, WM8960_POWER1, val);
-            ret = WM8960_WriteReg(handle, WM8960_LINPATH, 0x1B8);
-            ret = WM8960_WriteReg(handle, WM8960_LINVOL, 0x117);
-            break;
-        case kWM8960_InputLineINPUT2:
-            WM8960_ReadReg(WM8960_POWER1, &val);
-            val |= (WM8960_POWER1_AINL_MASK | WM8960_POWER1_ADCL_MASK);
-            ret = WM8960_WriteReg(handle, WM8960_POWER1, val);
-            WM8960_ReadReg(WM8960_INBMIX1, &val);
-            val |= 0xE;
-            ret = WM8960_WriteReg(handle, WM8960_INBMIX1, val);
-            break;
-        case kWM8960_InputLineINPUT3:
-            WM8960_ReadReg(WM8960_POWER1, &val);
-            val |= (WM8960_POWER1_AINL_MASK | WM8960_POWER1_ADCL_MASK);
-            ret = WM8960_WriteReg(handle, WM8960_POWER1, val);
-            WM8960_ReadReg(WM8960_INBMIX1, &val);
-            val |= 0x70;
-            ret = WM8960_WriteReg(handle, WM8960_INBMIX1, val);
-            break;
-        default:
-            break;
-    }
-
-    return ret;
-}
-
-uint8_t WM8960_SetRightInput(wm8960_handle_t *handle, wm8960_input_t input)
-{
-    uint8_t ret = 0;
-    uint16_t val = 0;
-
-    switch (input)
-    {
-        case kWM8960_InputSingleEndedMic:
-            /* Only LMN1 enabled, LMICBOOST to 13db, LMIC2B enabled */
-            WM8960_ReadReg(WM8960_POWER1, &val);
-            val |= (WM8960_POWER1_AINR_MASK | WM8960_POWER1_ADCR_MASK | WM8960_POWER1_MICB_MASK);
-            ret = WM8960_WriteReg(handle, WM8960_POWER1, val);
-            ret = WM8960_WriteReg(handle, WM8960_RINPATH, 0x138);
-            ret = WM8960_WriteReg(handle, WM8960_RINVOL, 0x117);
-            break;
-        case kWM8960_InputDifferentialMicInput2:
-            WM8960_ReadReg(WM8960_POWER1, &val);
-            val |= (WM8960_POWER1_AINR_MASK | WM8960_POWER1_ADCR_MASK | WM8960_POWER1_MICB_MASK);
-            ret = WM8960_WriteReg(handle, WM8960_POWER1, val);
-            ret = WM8960_WriteReg(handle, WM8960_RINPATH, 0x178);
-            ret = WM8960_WriteReg(handle, WM8960_RINVOL, 0x117);
-            break;
-        case kWM8960_InputDifferentialMicInput3:
-            WM8960_ReadReg(WM8960_POWER1, &val);
-            val |= (WM8960_POWER1_AINR_MASK | WM8960_POWER1_ADCR_MASK | WM8960_POWER1_MICB_MASK);
-            ret = WM8960_WriteReg(handle, WM8960_POWER1, val);
-            ret = WM8960_WriteReg(handle, WM8960_RINPATH, 0x1B8);
-            ret = WM8960_WriteReg(handle, WM8960_RINVOL, 0x117);
-            break;
-        case kWM8960_InputLineINPUT2:
-            WM8960_ReadReg(WM8960_POWER1, &val);
-            val |= (WM8960_POWER1_AINR_MASK | WM8960_POWER1_ADCR_MASK);
-            ret = WM8960_WriteReg(handle, WM8960_POWER1, val);
-            WM8960_ReadReg(WM8960_INBMIX2, &val);
-            val |= 0xE;
-            ret = WM8960_WriteReg(handle, WM8960_INBMIX2, val);
-            break;
-        case kWM8960_InputLineINPUT3:
-            WM8960_ReadReg(WM8960_POWER1, &val);
-            val |= (WM8960_POWER1_AINR_MASK | WM8960_POWER1_ADCR_MASK);
-            ret = WM8960_WriteReg(handle, WM8960_POWER1, val);
-            WM8960_ReadReg(WM8960_INBMIX2, &val);
-            val |= 0x70;
-            ret = WM8960_WriteReg(handle, WM8960_INBMIX2, val);
-            break;
-        default:
-            break;
-    }
-
-    return ret;
-}
-
-uint8_t WM8960_SetProtocol(wm8960_handle_t *handle, wm8960_protocol_t protocol)
-{
-    return WM8960_ModifyReg(handle, WM8960_IFACE1, WM8960_IFACE1_FORMAT_MASK | WM8960_IFACE1_LRP_MASK, protocol);
-}
-
-uint8_t WM8960_SetVolume(wm8960_handle_t *handle, wm8960_module_t module, uint32_t volume)
-{
-    uint16_t vol = 0;
-    uint8_t ret = 0;
-    switch (module)
-    {
-        case kWM8960_ModuleADC:
-            vol = volume;
-            ret = WM8960_WriteReg(handle, WM8960_LADC, vol);
-            ret = WM8960_WriteReg(handle, WM8960_RADC, vol);
-            /* Update volume */
-            vol = 0x100 | volume;
-            ret = WM8960_WriteReg(handle, WM8960_LADC, vol);
-            ret = WM8960_WriteReg(handle, WM8960_RADC, vol);
-            break;
-        case kWM8960_ModuleDAC:
-            vol = volume;
-            ret = WM8960_WriteReg(handle, WM8960_LDAC, vol);
-            ret = WM8960_WriteReg(handle, WM8960_RDAC, vol);
-            vol = 0x100 | volume;
-            ret = WM8960_WriteReg(handle, WM8960_LDAC, vol);
-            ret = WM8960_WriteReg(handle, WM8960_RDAC, vol);
-            break;
-        case kWM8960_ModuleHP:
-            vol = volume;
-            ret = WM8960_WriteReg(handle, WM8960_LOUT1, vol);
-            ret = WM8960_WriteReg(handle, WM8960_ROUT1, vol);
-            vol = 0x100 | volume;
-            ret = WM8960_WriteReg(handle, WM8960_LOUT1, vol);
-            ret = WM8960_WriteReg(handle, WM8960_ROUT1, vol);
-            break;
-        case kWM8960_ModuleLineIn:
-            vol = volume;
-            ret = WM8960_WriteReg(handle, WM8960_LINVOL, vol);
-            ret = WM8960_WriteReg(handle, WM8960_RINVOL, vol);
-            vol = 0x100 | volume;
-            ret = WM8960_WriteReg(handle, WM8960_LINVOL, vol);
-            ret = WM8960_WriteReg(handle, WM8960_RINVOL, vol);
-            break;
-        case kWM8960_ModuleSpeaker:
-            vol = volume;
-            ret = WM8960_WriteReg(handle, WM8960_LOUT2, vol);
-            ret = WM8960_WriteReg(handle, WM8960_ROUT2, vol);
-            vol = 0x100 | volume;
-            ret = WM8960_WriteReg(handle, WM8960_LOUT2, vol);
-            ret = WM8960_WriteReg(handle, WM8960_ROUT2, vol);
-            break;
-        default:
-            ret = 2;
-            break;
-    }
-    return ret;
-}
-
-uint32_t WM8960_GetVolume(wm8960_handle_t *handle, wm8960_module_t module)
-{
-    uint16_t vol = 0;
-    switch (module)
-    {
-        case kWM8960_ModuleADC:
-            WM8960_ReadReg(WM8960_LADC, &vol);
-            vol &= 0xFF;
-            break;
-        case kWM8960_ModuleDAC:
-            WM8960_ReadReg(WM8960_LDAC, &vol);
-            vol &= 0xFF;
-            break;
-        case kWM8960_ModuleHP:
-            WM8960_ReadReg(WM8960_LOUT1, &vol);
-            vol &= 0x7F;
-            break;
-        case kWM8960_ModuleLineOut:
-            WM8960_ReadReg(WM8960_LINVOL, &vol);
-            vol &= 0x3F;
-            break;
-        default:
-            vol = 0;
-            break;
-    }
-    return vol;
-}
-
-uint8_t WM8960_SetMute(wm8960_handle_t *handle, wm8960_module_t module, bool isEnabled)
-{
-    uint8_t ret = 0;
-    switch (module)
-    {
-        case kWM8960_ModuleADC:
-            /*
-             * Digital Mute
-             */
-            if (isEnabled)
-            {
-                ret = WM8960_WriteReg(handle, WM8960_LADC, 0x100);
-                ret = WM8960_WriteReg(handle, WM8960_RADC, 0x100);
-            }
-            else
-            {
-                ret = WM8960_WriteReg(handle, WM8960_LADC, 0x1C3);
-                ret = WM8960_WriteReg(handle, WM8960_RADC, 0x1C3);
-            }
-            break;
-        case kWM8960_ModuleDAC:
-            /*
-             * Digital mute
-             */
-            if (isEnabled)
-            {
-                ret = WM8960_WriteReg(handle, WM8960_LDAC, 0x100);
-                ret = WM8960_WriteReg(handle, WM8960_RDAC, 0x100);
-            }
-            else
-            {
-                ret = WM8960_WriteReg(handle, WM8960_LDAC, 0x1FF);
-                ret = WM8960_WriteReg(handle, WM8960_RDAC, 0x1FF);
-            }
-            break;
-        case kWM8960_ModuleHP:
-            /*
-             * Analog mute
-             */
-            if (isEnabled)
-            {
-                ret = WM8960_WriteReg(handle, WM8960_LOUT1, 0x100);
-                ret = WM8960_WriteReg(handle, WM8960_ROUT1, 0x100);
-            }
-            else
-            {
-                ret = WM8960_WriteReg(handle, WM8960_LOUT1, 0x16F);
-                ret = WM8960_WriteReg(handle, WM8960_ROUT1, 0x16F);
-            }
-            break;
-
-        case kWM8960_ModuleSpeaker:
-            if (isEnabled)
-            {
-                ret = WM8960_WriteReg(handle, WM8960_LOUT2, 0x100);
-                ret = WM8960_WriteReg(handle, WM8960_ROUT2, 0x100);
-            }
-            else
-            {
-                ret = WM8960_WriteReg(handle, WM8960_LOUT2, 0x16F);
-                ret = WM8960_WriteReg(handle, WM8960_ROUT2, 0x16f);
-            }
-            break;
-
-        case kWM8960_ModuleLineOut:
-            break;
-        default:
-            ret = 2;
-            break;
-    }
-    return ret;
-}
-
-uint8_t WM8960_ConfigDataFormat(wm8960_handle_t *handle, uint32_t sysclk, uint32_t sample_rate, uint32_t bits)
-{
-    uint8_t retval  = 0;
-    uint32_t divider = 0;
-    uint16_t val     = 0;
-
-    /* Compute sample rate divider, dac and adc are the same sample rate */
-    divider = sysclk / sample_rate;
-    if (divider == 256)
-    {
-        val = 0;
-    }
-    else if (divider > 256)
-    {
-        val = (((divider / 256U) << 6U) | ((divider / 256U) << 3U));
-    }
-    else
-    {
-        return 2;
-    }
-
-    retval = WM8960_WriteReg(handle, WM8960_CLOCK1, val);
-
-    /* Compute bclk divider */
-    divider /= bits * 2;
-    switch (divider)
-    {
-        case 4:
-        case 5:
-        case 6:
-            val = (0x1C0 | divider);
-            break;
-        case 8:
-            val = 0x1C7;
-            break;
-        case 11:
-            val = 0x1C8;
-            break;
-        case 12:
-            val = 0x1C9;
-            break;
-        case 16:
-            val = 0x1CA;
-            break;
-        case 22:
-            val = 0x1CB;
-            break;
-        case 24:
-            val = 0x1CC;
-            break;
-        case 32:
-            val = 0x1CF;
-            break;
-        default:
-            return 2;
-    }
-
-    retval = WM8960_WriteReg(handle, WM8960_CLOCK2, val);
-    /*
-     * Slave mode (MS = 0), LRP = 0, 32bit WL, left justified (FORMAT[1:0]=0b01)
-     */
-    switch (bits)
-    {
-        case 16:
-            retval = WM8960_ModifyReg(handle, WM8960_IFACE1, WM8960_IFACE1_WL_MASK,
-                                      WM8960_IFACE1_WL(WM8960_IFACE1_WL_16BITS));
-            break;
-        case 20:
-            retval = WM8960_ModifyReg(handle, WM8960_IFACE1, WM8960_IFACE1_WL_MASK,
-                                      WM8960_IFACE1_WL(WM8960_IFACE1_WL_20BITS));
-            break;
-        case 24:
-            retval = WM8960_ModifyReg(handle, WM8960_IFACE1, WM8960_IFACE1_WL_MASK,
-                                      WM8960_IFACE1_WL(WM8960_IFACE1_WL_24BITS));
-            break;
-        case 32:
-            retval = WM8960_ModifyReg(handle, WM8960_IFACE1, WM8960_IFACE1_WL_MASK,
-                                      WM8960_IFACE1_WL(WM8960_IFACE1_WL_32BITS));
-            break;
-        default:
-            return 2;
-    }
-
-    return retval;
-}
-
-uint8_t WM8960_SetJackDetect(wm8960_handle_t *handle, bool isEnabled)
-{
-    uint8_t retval = 0;
-    uint16_t val   = 0;
-
-    WM8960_ReadReg(WM8960_ADDCTL2, &val);
-
-    if (isEnabled)
-    {
-        val |= 0x40U;
-    }
-    else
-    {
-        val &= 0xCF;
-    }
-
-    retval = WM8960_WriteReg(handle, WM8960_ADDCTL2, val);
-
-    return retval;
-}
-
-uint8_t WM8960_WriteReg(wm8960_handle_t *handle, uint8_t reg, uint16_t val)
+uint8_t WM8960_WriteReg(uint8_t reg, uint16_t val)
 {
 	uint8_t data[2];
 
 	data[0]  = (reg<<1)|((uint8_t)((val>>8)&0x0001));
 	data[1] = ((uint8_t)(val&0x00FF));
 
+	LOG("address: 0x%02x: 0x%02x 0x%02x\n\r", 0x1A , data[0], data[1]);
 
-	if(HAL_I2C_Master_Transmit(handle->i2cHandle, handle->config->slaveAddress, (uint8_t *)&data, 2, 1000)==HAL_OK)
+	if(HAL_I2C_Master_Transmit(&hi2c4, 0x1A << 1, (uint8_t *)&data, 2, 1000)==HAL_OK)
 	{
 		reg_cache[reg] = val;
 		return 0;
@@ -650,7 +188,7 @@ uint8_t WM8960_WriteReg(wm8960_handle_t *handle, uint8_t reg, uint16_t val)
 
 uint8_t WM8960_ReadReg(uint8_t reg, uint16_t *val)
 {
-    if (reg >= WM8960_CACHEREGNUM)
+    if (reg >= 56)
     {
         return 2;
     }
@@ -660,7 +198,7 @@ uint8_t WM8960_ReadReg(uint8_t reg, uint16_t *val)
     return 0;
 }
 
-uint8_t WM8960_ModifyReg(wm8960_handle_t *handle, uint8_t reg, uint16_t mask, uint16_t val)
+uint8_t WM8960_ModifyReg(uint8_t reg, uint16_t mask, uint16_t val)
 {
     uint8_t retval   = 0;
     uint16_t reg_val = 0;
@@ -671,7 +209,7 @@ uint8_t WM8960_ModifyReg(wm8960_handle_t *handle, uint8_t reg, uint16_t mask, ui
     }
     reg_val &= (uint16_t)~mask;
     reg_val |= val;
-    retval = WM8960_WriteReg(handle, reg, reg_val);
+    retval = WM8960_WriteReg(reg, reg_val);
     if (retval != 0)
     {
         return 1;
@@ -679,33 +217,3 @@ uint8_t WM8960_ModifyReg(wm8960_handle_t *handle, uint8_t reg, uint16_t mask, ui
     return 0;
 }
 
-uint8_t WM8960_SetPlay(wm8960_handle_t *handle, uint32_t playSource)
-{
-    uint8_t ret = 0;
-
-    if (kWM8960_PlaySourcePGA & playSource)
-    {
-        ret = WM8960_ModifyReg(handle, WM8960_BYPASS1, 0x80U, 0x80U);
-        ret = WM8960_ModifyReg(handle, WM8960_BYPASS2, 0x80U, 0x80U);
-        ret = WM8960_ModifyReg(handle, WM8960_LOUTMIX, 0x180U, 0U);
-        ret = WM8960_ModifyReg(handle, WM8960_ROUTMIX, 0x180U, 0U);
-    }
-
-    if (playSource & kWM8960_PlaySourceDAC)
-    {
-        ret = WM8960_ModifyReg(handle, WM8960_BYPASS1, 0x80U, 0x00U);
-        ret = WM8960_ModifyReg(handle, WM8960_BYPASS2, 0x80U, 0x00U);
-        ret = WM8960_ModifyReg(handle, WM8960_LOUTMIX, 0x180U, 0x100U);
-        ret = WM8960_ModifyReg(handle, WM8960_ROUTMIX, 0x180U, 0x100U);
-    }
-
-    if (playSource & kWM8960_PlaySourceInput)
-    {
-        ret = WM8960_ModifyReg(handle, WM8960_BYPASS1, 0x80U, 0x0U);
-        ret = WM8960_ModifyReg(handle, WM8960_BYPASS2, 0x80U, 0x0U);
-        ret = WM8960_ModifyReg(handle, WM8960_LOUTMIX, 0x180U, 0x80U);
-        ret = WM8960_ModifyReg(handle, WM8960_ROUTMIX, 0x180U, 0x80U);
-    }
-
-    return ret;
-}
